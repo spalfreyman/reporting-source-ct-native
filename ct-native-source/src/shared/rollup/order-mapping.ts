@@ -414,8 +414,9 @@ export const foldFulfilmentDaily = (facts: OrderFact[]): FactCell[] => {
     const k = {
       store: fact.dims.store,
       shippingMethod: fact.dims.shippingMethod ?? NONE,
+      carrier: fact.dims.carrier ?? NONE,
     };
-    const mapKey = Object.values(k).join('');
+    const mapKey = Object.values(k).join('\u0000');
     const cell: FactCell = byKey.get(mapKey) ?? { k, m: {} };
     cell.m.shipments = (cell.m.shipments ?? 0) + (fact.measures.shipments ?? 0);
     cell.m.shipmentsOnTime = (cell.m.shipmentsOnTime ?? 0) + (fact.measures.shipmentsOnTime ?? 0);

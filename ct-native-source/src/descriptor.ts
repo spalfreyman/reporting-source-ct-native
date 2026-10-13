@@ -113,8 +113,8 @@ export const buildDescriptor = (options: DescriptorOptions = {}): DataSourceDesc
         materialized('discount.redemptions', ['date', 'discountCode', 'store', 'currency']),
         materialized('customers.cohortSize', ['cohortMonth', 'store']),
         materialized('customers.retained', ['cohortMonth', 'periodIndex', 'store']),
-        materialized('shipments.count', ['date', 'store', 'shippingMethod']),
-        materialized('shipments.onTime', ['date', 'store', 'shippingMethod']),
+        materialized('shipments.count', ['date', 'store', 'shippingMethod', 'carrier']),
+        materialized('shipments.onTime', ['date', 'store', 'shippingMethod', 'carrier']),
 
         // ── Live stock, from the InventoryEntry API ──────────────────────────
         // Served from the core InventoryEntry resource (NOT Product Search), so it is
@@ -170,6 +170,7 @@ export const buildDescriptor = (options: DescriptorOptions = {}): DataSourceDesc
         { dimensionId: 'discountCode', filterable: true },
         { dimensionId: 'returnReason', filterable: true },
         { dimensionId: 'shippingMethod', filterable: true },
+        { dimensionId: 'carrier', filterable: true },
         { dimensionId: 'cohortMonth', filterable: false },
         { dimensionId: 'periodIndex', filterable: false },
       ],
