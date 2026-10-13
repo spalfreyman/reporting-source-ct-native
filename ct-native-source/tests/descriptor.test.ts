@@ -42,6 +42,20 @@ describe('descriptor honesty about Product Search', () => {
     expect(liveIds(true)).toContain('price.mean');
   });
 
+  it('declares a low per-metric max lag on live metrics so near-real-time reports accept them', () => {
+    // Without this, the source-level maxLag (the order rollup's lag) would reject live
+    // catalogue metrics for a report demanding <=300s freshness (e.g. catalogue-health).
+    resetConfiguration();
+    Object.assign(process.env, { ...ENV, MODE: 'live' });
+    const live = buildDescriptor({ productSearchAvailable: true }).capabilities.metrics.filter(
+      (m) => m.execution === 'live'
+    );
+    expect(live.length).toBeGreaterThan(0);
+    for (const m of live) {
+      expect(m.maxLagSeconds !== undefined && m.maxLagSeconds <= 300).toBe(true);
+    }
+  });
+
   it('still advertises the order metrics regardless of Product Search', () => {
     resetConfiguration();
     Object.assign(process.env, { ...ENV, MODE: 'live' });

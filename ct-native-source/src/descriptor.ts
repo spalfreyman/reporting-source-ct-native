@@ -47,6 +47,11 @@ const live = (metricId: string, dimensions: string[]): MetricCapability => ({
   dimensions,
   costClass: 'cheap',
   exactness: 'exact',
+  // Product Search facets are current to the request. Declared per-metric so these live metrics
+  // are NOT judged by the source-level maxLag (which describes the order rollup's lag): without
+  // this, a near-real-time catalogue report rejects ct-native because the rollup lags an hour.
+  maxLagSeconds: 60,
+  typicalLagSeconds: 0,
 });
 
 export interface DescriptorOptions {
