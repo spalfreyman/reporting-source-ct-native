@@ -179,6 +179,11 @@ export const readLiveFacets = async (
     }
   }
 
+  // Product Search rejects an `and` that wraps a single expression ("Single expression in
+  // [and]"), so only combine with `and` for 2+ filters; a lone filter is passed on its own.
+  const queryExpression =
+    filters.length === 0 ? undefined : filters.length === 1 ? filters[0] : { and: filters };
+
   let response;
   try {
     response = await root
@@ -186,7 +191,7 @@ export const readLiveFacets = async (
       .search()
       .post({
         body: {
-          query: filters.length > 0 ? { and: filters } : undefined,
+          query: queryExpression,
           facets: facets.length > 0 ? facets : undefined,
           limit: 0,
           markMatchingVariants: false,

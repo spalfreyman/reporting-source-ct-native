@@ -53,6 +53,39 @@ describe('readLiveFacets request shaping', () => {
   });
 });
 
+describe('readLiveFacets query expression', () => {
+  it('passes a lone filter on its own, not wrapped in `and` (Product Search rejects single-expression `and`)', async () => {
+    let captured: { query?: unknown } | undefined;
+    const root = stubRoot({ capture: (b) => (captured = b as typeof captured), result: { total: 7 } });
+    await readLiveFacets(
+      root,
+      query({ metrics: ['products.count'], filters: [{ dimension: 'currency', op: 'eq', value: 'EUR' }] }),
+      [1000]
+    );
+    // a single filter must be the bare expression, never { and: [one] }
+    expect(captured?.query && typeof captured.query === 'object' && 'and' in (captured.query as object)).toBe(false);
+    expect(JSON.stringify(captured?.query)).toBe(JSON.stringify({ exact: { field: 'variants.prices.currencyCode', value: 'EUR' } }));
+  });
+
+  it('combines 2+ filters with `and`', async () => {
+    let captured: { query?: { and?: unknown[] } } | undefined;
+    const root = stubRoot({ capture: (b) => (captured = b as typeof captured), result: { total: 3 } });
+    await readLiveFacets(
+      root,
+      query({
+        metrics: ['products.count'],
+        filters: [
+          { dimension: 'currency', op: 'eq', value: 'EUR' },
+          { dimension: 'productType', op: 'eq', value: 'pt-1' },
+        ],
+      }),
+      [1000]
+    );
+    expect(Array.isArray(captured?.query?.and)).toBe(true);
+    expect(captured?.query?.and?.length).toBe(2);
+  });
+});
+
 describe('readLiveFacets error translation', () => {
   const run = (error: unknown) =>
     readLiveFacets(stubRoot({ error }), query({ metrics: ['products.count'] }), [1000]);
