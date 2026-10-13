@@ -24,6 +24,7 @@ const ORDER_DIMENSIONS = [
   'distributionChannel',
   'country',
   'orderState',
+  'paymentState',
   'customerGroup',
   'customerType',
 ];
@@ -115,6 +116,13 @@ export const buildDescriptor = (options: DescriptorOptions = {}): DataSourceDesc
         materialized('shipments.count', ['date', 'store', 'shippingMethod']),
         materialized('shipments.onTime', ['date', 'store', 'shippingMethod']),
 
+        // ── Live stock, from the InventoryEntry API ──────────────────────────
+        // Served from the core InventoryEntry resource (NOT Product Search), so it is
+        // advertised even where Product Search is not activated. Grain is supplyChannel (the
+        // native stock location) / product (SKU) / category — never `store`, because a supply
+        // channel can belong to several stores and a store breakdown would double-count stock.
+        live('inventory.available', ['category', 'product', 'supplyChannel']),
+
         // ── Live catalogue, from Product Search facets ───────────────────────
         // Advertised only when Product Search is actually available on the project.
         ...(liveCatalogue
@@ -124,7 +132,6 @@ export const buildDescriptor = (options: DescriptorOptions = {}): DataSourceDesc
               live('price.min', ['category', 'productType', 'brand', 'currency']),
               live('price.max', ['category', 'productType', 'brand', 'currency']),
               live('price.mean', ['category', 'productType', 'brand', 'currency']),
-              live('inventory.available', ['category', 'product', 'store']),
             ]
           : []),
       ],
@@ -148,7 +155,13 @@ export const buildDescriptor = (options: DescriptorOptions = {}): DataSourceDesc
           filterable: true,
         },
         { dimensionId: 'distributionChannel', filterable: true },
+        {
+          dimensionId: 'supplyChannel',
+          canonicalKeyDefinition: 'commercetools:channel.key',
+          filterable: true,
+        },
         { dimensionId: 'orderState', filterable: true },
+        { dimensionId: 'paymentState', filterable: true },
         { dimensionId: 'customerGroup', filterable: true },
         { dimensionId: 'customerType', filterable: true },
         { dimensionId: 'productType', filterable: true },

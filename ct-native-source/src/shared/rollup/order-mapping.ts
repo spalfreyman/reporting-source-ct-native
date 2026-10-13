@@ -46,6 +46,12 @@ export interface OrderProjection {
   customerEmail?: string | null;
   /** Discount codes applied, used only to mark an order as "promoted". */
   discountCodes?: Array<{ discountCode?: { id?: string | null } | null }> | null;
+  /**
+   * Order-level custom fields carrying synthetic reporting metadata written by the generator:
+   * `promoCode` (promotion applied), and `shippedAt`/`carrier`/`shippingMethod` (dispatch). The
+   * scan selects them via `custom { customFieldsRaw(includeNames:[...]) { name value } }`.
+   */
+  custom?: { customFieldsRaw?: Array<{ name: string; value?: unknown }> | null } | null;
   lineItems?: Array<{
     quantity: number;
     productId?: string | null;
@@ -73,6 +79,15 @@ export interface OrderProjection {
 
 /** Placeholder for a dimension the order does not carry, so keys are never empty strings. */
 export const NONE = '_none';
+
+/** Dispatch SLA: a shipment is "on time" when shipped within this many days of the order. */
+export const DISPATCH_SLA_DAYS = 2;
+
+/** Read a string order-level custom field (promoCode / carrier / shippingMethod / shippedAt). */
+const orderCustomField = (order: OrderProjection, name: string): string | undefined => {
+  const raw = (order.custom?.customFieldsRaw ?? []).find((f) => f.name === name)?.value;
+  return raw === null || raw === undefined ? undefined : String(raw);
+};
 
 /** The distribution channel of an order, taken from its line items when they agree. */
 const channelOf = (order: OrderProjection): string => {
@@ -207,6 +222,20 @@ export const toOrderFact = (order: OrderProjection, timezone: string): OrderFact
   const measures = orderMeasures(order);
   const businessDate = businessDateOf(order, timezone);
 
+  // Promotion: the code applied (from the order custom field), if any.
+  const promoCode = orderCustomField(order, 'promoCode') ?? NONE;
+  const redemptions = promoCode !== NONE ? 1 : 0;
+
+  // Fulfilment: a synthetic dispatch stamped on fulfilled orders. On time when shipped within
+  // the SLA of the order date. Counts feed the fulfilment-daily cube (shipments.count/onTime).
+  const shippedAt = orderCustomField(order, 'shippedAt');
+  const shipments = shippedAt ? 1 : 0;
+  const shippedOnTime =
+    shippedAt &&
+    Date.parse(shippedAt.slice(0, 10)) - Date.parse(businessDate) <= DISPATCH_SLA_DAYS * 86_400_000
+      ? 1
+      : 0;
+
   return {
     schemaVersion: 1,
     orderId: order.id,
@@ -223,6 +252,9 @@ export const toOrderFact = (order: OrderProjection, timezone: string): OrderFact
       country: order.country ?? NONE,
       orderState: order.orderState ?? NONE,
       paymentState: order.paymentState ?? NONE,
+      discountCode: promoCode,
+      shippingMethod: orderCustomField(order, 'shippingMethod') ?? NONE,
+      carrier: orderCustomField(order, 'carrier') ?? NONE,
     },
     measures: {
       orders: measures.orders,
@@ -236,6 +268,9 @@ export const toOrderFact = (order: OrderProjection, timezone: string): OrderFact
       units: measures.units,
       lines: measures.lines,
       ordersPromoted: measures.ordersPromoted,
+      redemptions,
+      shipments,
+      shipmentsOnTime: shippedOnTime,
       // Left to a future pass; advertised metrics that read 0 are handled as "none" by the
       // additive path rather than being wrong.
       customersNew: 0,
@@ -332,6 +367,59 @@ export const foldOrderCategoriesDaily = (facts: OrderFact[]): FactCell[] => {
       cell.m.cost = (cell.m.cost ?? 0) + (item.cost ?? 0);
       byKey.set(mapKey, cell);
     }
+  }
+
+  return [...byKey.values()];
+};
+
+/**
+ * Folds order-facts into the `promotions-daily` cube: discount-code redemptions per code.
+ *
+ * Only orders that carried a promo code contribute. Keyed by the conformed discount dimensions
+ * (currency, store, discountCode) so promotion-effectiveness can break redemptions down by code.
+ */
+export const foldPromotionsDaily = (facts: OrderFact[]): FactCell[] => {
+  const byKey = new Map<string, FactCell>();
+
+  for (const fact of facts) {
+    if ((fact.measures.redemptions ?? 0) <= 0) continue; // only promoted orders
+    const k = {
+      currency: fact.dims.currency,
+      store: fact.dims.store,
+      discountCode: fact.dims.discountCode ?? NONE,
+    };
+    const mapKey = Object.values(k).join('');
+    const cell: FactCell = byKey.get(mapKey) ?? { k, m: {} };
+    cell.m.redemptions = (cell.m.redemptions ?? 0) + (fact.measures.redemptions ?? 0);
+    cell.m.ordersPromoted = (cell.m.ordersPromoted ?? 0) + (fact.measures.ordersPromoted ?? 0);
+    cell.m.discount = (cell.m.discount ?? 0) + (fact.measures.discount ?? 0);
+    byKey.set(mapKey, cell);
+  }
+
+  return [...byKey.values()];
+};
+
+/**
+ * Folds order-facts into the `fulfilment-daily` cube: shipment counts + on-time counts.
+ *
+ * Only orders with a dispatch (a shipment) contribute. Keyed by (store, shippingMethod) so the
+ * fulfilment SLA report can break dispatch performance down by method. `shipments.onTime` is a
+ * count; the on-time RATE is a derived metric (onTime / count) computed after aggregation.
+ */
+export const foldFulfilmentDaily = (facts: OrderFact[]): FactCell[] => {
+  const byKey = new Map<string, FactCell>();
+
+  for (const fact of facts) {
+    if ((fact.measures.shipments ?? 0) <= 0) continue; // only shipped orders
+    const k = {
+      store: fact.dims.store,
+      shippingMethod: fact.dims.shippingMethod ?? NONE,
+    };
+    const mapKey = Object.values(k).join('');
+    const cell: FactCell = byKey.get(mapKey) ?? { k, m: {} };
+    cell.m.shipments = (cell.m.shipments ?? 0) + (fact.measures.shipments ?? 0);
+    cell.m.shipmentsOnTime = (cell.m.shipmentsOnTime ?? 0) + (fact.measures.shipmentsOnTime ?? 0);
+    byKey.set(mapKey, cell);
   }
 
   return [...byKey.values()];
