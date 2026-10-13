@@ -99,6 +99,10 @@ export const buildDescriptor = (options: DescriptorOptions = {}): DataSourceDesc
         materialized('shipping.revenue@orderdate', ORDER_DIMENSIONS),
         materialized('tax.collected@orderdate', ORDER_DIMENSIONS),
         materialized('units.sold@orderdate', [...ORDER_DIMENSIONS, 'product', 'category']),
+        // Cost of goods is item-grain only (per product/category), from the line item price's
+        // `cost` custom field captured at order time. Drives margin.gross@orderdate (a derived
+        // metric = revenue.net - cost.goods, evaluated by the gateway after aggregation).
+        materialized('cost.goods@orderdate', ['date', 'currency', 'store', 'product', 'category']),
         materialized('lines.count@orderdate', ORDER_DIMENSIONS),
         materialized('refunds.value@cashdate', ORDER_DIMENSIONS),
         materialized('returns.units@orderdate', [...ITEM_DIMENSIONS, 'returnReason']),
